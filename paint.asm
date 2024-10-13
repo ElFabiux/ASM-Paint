@@ -2,11 +2,6 @@
 .STACK 100h
 
 .DATA
-    TXT DB "Hello", 13, 10, "$"; Byte variable, text
-    TXTUP DB "Up", 13, 10, "$"
-    TXTDOWN DB "Down", 13, 10, "$"
-    TXTLEFT DB "Left", 13, 10, "$"
-    TXTRIGHT DB "Right", 13, 10, "$"
     POSX DW 30; X position
     POSY DW 30; Y position
     BRUSH_COLOR DB 00H; Color del lápiz (empieza en negro)
@@ -56,12 +51,55 @@ READ_KEYBOARD:
     CMP AL, 00h; Verificar si la tecla es extendida (flechas)
     JE MOVE_BRUSH_EVENT; Si es una tecla extendida, mover pincel
 
-    CALL CHANGE_COLOR_EVENT; Si no es extendida, cambiar color
-    CALL CLEAN_EVENT
+    CMP AL, 6Ch; Comparar con la tecla 'L' (ASCII 4Ch)
+    JE CLEAR_SCREEN; Si es 'L', limpiar la pantalla
+
+    CALL CHANGE_COLOR_EVENT; Cambiar color si es una tecla válida
+    CALL MOUSE_CLICK_EVENT; Detectar clic del mouse
 
     JMP READ_KEYBOARD; Seguir leyendo teclas
     RET
 DETECT_KEY_EVENT ENDP
+
+; Método para limpiar la pantalla
+CLEAR_SCREEN PROC
+    MOV AX, 0600h; Función de scroll de la BIOS
+    MOV BH, 0Fh; Color de fondo (blanco)
+    MOV CX, 0000h; Esquina superior izquierda
+    MOV DX, 184Fh; Esquina inferior derecha (pantalla completa)
+    INT 10h; Interrupción de video
+    CALL CLEAN; Vuelve a establecer el área de trabajo limpia
+    JMP DETECT_KEY_EVENT; Volver a detectar eventos de teclado
+CLEAR_SCREEN ENDP
+
+CLEAN PROC
+    MOV AX, 0700h 
+    MOV BH, 0Fh; Primer dígito es el color de fondo / segundo dígito es el color del texto
+    MOV CX, 0h
+    MOV DX, 1F4fh
+    INT 10h
+    RET
+CLEAN ENDP
+
+MOUSE_CLICK_EVENT PROC
+    MOV AX, 0003h; Llama a la interrupción 33h para obtener el estado del mouse
+    INT 33h; Llama a la interrupción del mouse
+
+    TEST BX, 0001h; Verifica si el botón izquierdo está presionado (primer bit de BX)
+    JZ NO_CLICK; Si no está presionado, salta a NO_CLICK
+
+    ; Guardar la posición X del mouse
+    MOV POSX, CX; Almacena la posición X en POSX
+
+    ; Guardar la posición Y del mouse
+    MOV POSY, DX; Almacena la posición Y en POSY
+
+    ; Actualiza la posición del pincel
+    PAINT_PIXEL POSX, POSY ; Dibuja en la nueva posición con el color actual del pincel
+
+NO_CLICK:
+    JMP DETECT_KEY_EVENT
+MOUSE_CLICK_EVENT ENDP
 
 MOVE_BRUSH_EVENT PROC
     CMP AH, 48h; Flecha hacia arriba
@@ -172,20 +210,5 @@ CHANGE_GRAY:
     MOV BRUSH_COLOR, 08H; Color del lapiz a gris
     JMP DETECT_KEY_EVENT
 CHANGE_COLOR_EVENT ENDP
-
-CLEAN_EVENT PROC
-    CMP AL, 6Ch; Verificar si la tecla presionada es 'l'
-    JE CLEAN; Si es 'l', limpiar la pantalla
-    RET
-CLEAN_EVENT ENDP
-
-CLEAN PROC
-    MOV AX, 0700h 
-    MOV BH, 0Fh; Primer dígito es el color de fondo / segundo dígito es el color del texto
-    MOV CX, 0h
-    MOV DX, 1F4fh
-    INT 10h
-    RET
-CLEAN ENDP
 
 END MAIN
