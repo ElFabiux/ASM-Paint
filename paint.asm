@@ -4,7 +4,10 @@
 .DATA
     POSX DW 30; X position
     POSY DW 30; Y position
+    SQUARE_POSX DW 0
+    SQUARE_POSY DW 0
     BRUSH_COLOR DB 00H; Color del lápiz (empieza en negro)
+    SQUARE_COLOR DB 00H; Color del lápiz (empieza en negro)
 
     POSITION MACRO X, Y
         MOV AH, 02h
@@ -37,11 +40,103 @@ MAIN PROC FAR
     INT 10H
 
     CALL CLEAN
+    CALL DRAW_COLOR_SQUARES
     CALL DETECT_KEY_EVENT
 
     MOV AX, 4C00H
     INT 21H
 MAIN ENDP
+
+DRAW_COLOR_SQUARES PROC
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 10
+    MOV SQUARE_COLOR, 00H
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 35
+    MOV SQUARE_COLOR, 0CH
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 60
+    MOV SQUARE_COLOR, 09H
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 85
+    MOV SQUARE_COLOR, 0EH
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 110
+    MOV SQUARE_COLOR, 0AH
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 135
+    MOV SQUARE_COLOR, 05H
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 160
+    MOV SQUARE_COLOR, 06H
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 185
+    MOV SQUARE_COLOR, 0DH
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 210
+    MOV SQUARE_COLOR, 03H
+    CALL DRAW_SQUARE
+
+    MOV SQUARE_POSX, 610
+    MOV SQUARE_POSY, 235
+    MOV SQUARE_COLOR, 08H
+    CALL DRAW_SQUARE
+
+    RET
+DRAW_COLOR_SQUARES ENDP
+
+DRAW_SQUARE PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+
+    MOV CX, SQUARE_POSX; Cargar la posición X del cuadrado
+    MOV DX, SQUARE_POSY; Cargar la posición Y del cuadrado
+
+    MOV BX, 20; Ancho y alto del cuadrado
+
+    DRAW_ROW:
+        PUSH CX; Guardar la posición X inicial de la fila
+        MOV SI, 20; Número de columnas a dibujar (ancho del cuadrado)
+
+    DRAW_PIXEL:
+        MOV AH, 0CH; Función de interrupción para dibujar píxel (modo gráfico)
+        MOV AL, SQUARE_COLOR; Establecer el color (rojo 0CH)
+        INT 10H; Llamar a la interrupción de video
+
+        INC CX; Avanzar al siguiente píxel en la fila
+        DEC SI; Decrementar el contador de columnas
+        JNZ DRAW_PIXEL; Continuar dibujando la fila
+
+        POP CX; Restaurar la posición X inicial de la fila
+        INC DX; Mover a la siguiente fila
+        DEC BX; Decrementar el número de filas restantes
+        JNZ DRAW_ROW; Continuar dibujando filas
+
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DRAW_SQUARE ENDP
 
 DETECT_KEY_EVENT PROC
 READ_KEYBOARD:
@@ -51,25 +146,24 @@ READ_KEYBOARD:
     CMP AL, 00h; Verificar si la tecla es extendida (flechas)
     JE MOVE_BRUSH_EVENT; Si es una tecla extendida, mover pincel
 
-    CMP AL, 6Ch; Comparar con la tecla 'L' (ASCII 4Ch)
-    JE CLEAR_SCREEN; Si es 'L', limpiar la pantalla
+    CMP AL, 6Ch; Comparar con la tecla 'l'
+    JE CLEAR_SCREEN; Si es 'l', limpiar la pantalla
 
-    CALL CHANGE_COLOR_EVENT; Cambiar color si es una tecla válida
-    CALL MOUSE_CLICK_EVENT; Detectar clic del mouse
+    CALL CHANGE_COLOR_EVENT
+    CALL MOUSE_CLICK_EVENT
 
     JMP READ_KEYBOARD; Seguir leyendo teclas
     RET
 DETECT_KEY_EVENT ENDP
 
-; Método para limpiar la pantalla
 CLEAR_SCREEN PROC
-    MOV AX, 0600h; Función de scroll de la BIOS
+    MOV AX, 0600h
     MOV BH, 0Fh; Color de fondo (blanco)
     MOV CX, 0000h; Esquina superior izquierda
     MOV DX, 184Fh; Esquina inferior derecha (pantalla completa)
-    INT 10h; Interrupción de video
-    CALL CLEAN; Vuelve a establecer el área de trabajo limpia
-    JMP DETECT_KEY_EVENT; Volver a detectar eventos de teclado
+    INT 10h; Interrupcion de video
+    CALL CLEAN
+    JMP DETECT_KEY_EVENT
 CLEAR_SCREEN ENDP
 
 CLEAN PROC
