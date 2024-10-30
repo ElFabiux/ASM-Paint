@@ -2,12 +2,17 @@
 .STACK 100h
 
 .DATA
-    POSX DW 30; X position
-    POSY DW 30; Y position
+    POSX DW 80; X position
+    POSY DW 90; Y position
     SQUARE_POSX DW 0
     SQUARE_POSY DW 0
     BRUSH_COLOR DB 00H; Color del lápiz (empieza en negro)
     SQUARE_COLOR DB 00H; Color del lápiz (empieza en negro)
+
+    MIN_X DW 70
+    MAX_X DW 470
+    MIN_Y DW 80
+    MAX_Y DW 315
 
     POSITION MACRO X, Y
         MOV AH, 02h
@@ -40,12 +45,51 @@ MAIN PROC FAR
     INT 10H
 
     CALL CLEAN
+    CALL DRAW_BORDER
     CALL DRAW_COLOR_SQUARES
     CALL DETECT_KEY_EVENT
 
     MOV AX, 4C00H
     INT 21H
 MAIN ENDP
+
+DRAW_BORDER PROC
+    MOV BRUSH_COLOR, 00H   ; Color negro para el borde
+
+    ; Línea superior de (69, 79) a (471, 79)
+    MOV CX, 69
+TOP_BORDER:
+    PAINT_PIXEL CX, 79
+    INC CX
+    CMP CX, 471
+    JBE TOP_BORDER
+
+    ; Línea derecha de (471, 79) a (471, 316)
+    MOV DX, 79
+RIGHT_BORDER:
+    PAINT_PIXEL 471, DX
+    INC DX
+    CMP DX, 316
+    JBE RIGHT_BORDER
+
+    ; Línea inferior de (69, 316) a (471, 316)
+    MOV CX, 69
+BOTTOM_BORDER:
+    PAINT_PIXEL CX, 316
+    INC CX
+    CMP CX, 471
+    JBE BOTTOM_BORDER
+
+    ; Línea izquierda de (69, 79) a (69, 316)
+    MOV DX, 79
+LEFT_BORDER:
+    PAINT_PIXEL 69, DX
+    INC DX
+    CMP DX, 316
+    JBE LEFT_BORDER
+
+    RET
+DRAW_BORDER ENDP
 
 DRAW_COLOR_SQUARES PROC
 
@@ -196,40 +240,72 @@ NO_CLICK:
 MOUSE_CLICK_EVENT ENDP
 
 MOVE_BRUSH_EVENT PROC
-    CMP AH, 48h; Flecha hacia arriba
-    JE UP
+    CMP AH, 48h ; Flecha hacia arriba
+    JE CALL_UP
 
-    CMP AH, 50h; Flecha hacia abajo
-    JE DOWN
+    CMP AH, 50h ; Flecha hacia abajo
+    JE CALL_DOWN
 
-    CMP AH, 4Bh; Flecha hacia la izquierda
-    JE LEFT
+    CMP AH, 4Bh ; Flecha hacia la izquierda
+    JE CALL_LEFT
 
-    CMP AH, 4Dh; Flecha hacia la derecha
-    JE RIGHT
+    CMP AH, 4Dh ; Flecha hacia la derecha
+    JE CALL_RIGHT
 
-    JMP DETECT_KEY_EVENT; Si no es ninguna flecha, volver a leer el teclado
+    JMP DETECT_KEY_EVENT ; Si no es ninguna flecha, volver a leer el teclado
 
-UP:
-    ADD POSY, -1
-    PAINT_PIXEL POSX, POSY
+CALL_UP:
+    CALL MOVE_UP
     JMP DETECT_KEY_EVENT
 
-LEFT:
-    ADD POSX, -1
-    PAINT_PIXEL POSX, POSY
+CALL_DOWN:
+    CALL MOVE_DOWN
     JMP DETECT_KEY_EVENT
 
-DOWN:
-    ADD POSY, 1
-    PAINT_PIXEL POSX, POSY
+CALL_LEFT:
+    CALL MOVE_LEFT
     JMP DETECT_KEY_EVENT
 
-RIGHT:
-    ADD POSX, 1
-    PAINT_PIXEL POSX, POSY
+CALL_RIGHT:
+    CALL MOVE_RIGHT
     JMP DETECT_KEY_EVENT
 MOVE_BRUSH_EVENT ENDP
+
+MOVE_UP PROC
+    CMP POSY, 80D
+    JLE END_UP ; Si está en el límite superior, no se mueve
+    ADD POSY, -1
+    PAINT_PIXEL POSX, POSY
+END_UP:
+    RET
+MOVE_UP ENDP
+
+MOVE_DOWN PROC
+    CMP POSY, 315D
+    JGE END_DOWN ; Si está en el límite inferior, no se mueve
+    ADD POSY, 1
+    PAINT_PIXEL POSX, POSY
+END_DOWN:
+    RET
+MOVE_DOWN ENDP
+
+MOVE_LEFT PROC
+    CMP POSX, 70D
+    JLE END_LEFT ; Si está en el límite izquierdo, no se mueve
+    ADD POSX, -1
+    PAINT_PIXEL POSX, POSY
+END_LEFT:
+    RET
+MOVE_LEFT ENDP
+
+MOVE_RIGHT PROC
+    CMP POSX, 470D
+    JGE END_RIGHT ; Si está en el límite derecho, no se mueve
+    ADD POSX, 1
+    PAINT_PIXEL POSX, POSY
+END_RIGHT:
+    RET
+MOVE_RIGHT ENDP
 
 CHANGE_COLOR_EVENT PROC
     CMP AL, 31h; Numero 1
