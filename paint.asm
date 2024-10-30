@@ -38,11 +38,31 @@
     COL DW 50
     FIL DW 50
     TEXTPOS DW 38
+    MENU_TITLE DB 'MENU DE CONTROLES', 0   
+    COLOR_KEYS DB 'Teclas de color (1-0):', 0
+    EXPORT_KEY DB 'Tecla para exportar: e', 0
+    IMPORT_KEY DB 'Tecla para importar: i', 0
+    CLEAR_KEY  DB 'Tecla para limpiar: l', 0
+    START_MSG  DB 'Presiona cualquier tecla para iniciar...', 0
+    MENU_ROW DB 5              ; Fila de inicio para el menú en modo texto
+    MENU_COL DB 10             ; Columna de inicio para el menú en modo texto
 
 .CODE
 MAIN PROC FAR
     MOV AX, @DATA
     MOV DS, AX
+
+    ; Cambiar a modo texto 80x25, color 3
+    MOV AH, 0                  ; Función para cambiar el modo de video
+    MOV AL, 03H                ; Modo de texto 80x25
+    INT 10H                    ; Interrupción para cambio de modo
+
+    ; Mostrar el menú
+    CALL DISPLAY_MENU          ; Llamada para mostrar el menú de controles
+
+    ; Pausa hasta que se presione una tecla
+    MOV AH, 0
+    INT 16H                    ; Espera una tecla
 
     MOV AH, 00
     MOV AL, 12H
@@ -56,6 +76,62 @@ MAIN PROC FAR
     MOV AX, 4C00H
     INT 21H
 MAIN ENDP
+
+DISPLAY_MENU PROC
+    ; Mostrar título del menú
+    MOV DH, MENU_ROW
+    MOV DL, MENU_COL
+    LEA DX, MENU_TITLE
+    CALL PRINT_TEXT
+
+    ; Mostrar teclas de colores
+    INC DH
+    LEA DX, COLOR_KEYS
+    CALL PRINT_TEXT
+
+    ; Mostrar tecla para exportar
+    INC DH
+    LEA DX, EXPORT_KEY
+    CALL PRINT_TEXT
+
+    ; Mostrar tecla para importar
+    INC DH
+    LEA DX, IMPORT_KEY
+    CALL PRINT_TEXT
+
+    ; Mostrar tecla para limpiar
+    INC DH
+    LEA DX, CLEAR_KEY
+    CALL PRINT_TEXT
+
+    ; Mensaje para iniciar
+    ADD DH, 2
+    LEA DX, START_MSG
+    CALL PRINT_TEXT
+    RET
+DISPLAY_MENU ENDP
+
+PRINT_TEXT PROC
+    ; Imprime una cadena en la posición actual del cursor
+    ; Entrada: DX = Dirección de la cadena, DH = Fila, DL = Columna
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+
+    MOV AH, 02H                ; Posicionar cursor
+    MOV BH, 0                  ; Página de pantalla
+    INT 10H
+
+    MOV AH, 09H                ; Función de DOS para imprimir cadena
+    INT 21H                    ; Mostrar la cadena en la posición especificada
+
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+PRINT_TEXT ENDP
 
 DRAW_BORDER PROC
     MOV BRUSH_COLOR, 00H   ; Color negro para el borde
@@ -273,66 +349,77 @@ CALL_RIGHT:
 MOVE_BRUSH_EVENT ENDP
 
 IMPORT_DRAWING PROC
-    MOV AH, 3Dh             ; Función DOS para abrir archivo
-    MOV AL, 0               ; Modo de solo lectura
-    LEA DX, FILENAME        ; Nombre del archivo a leer
-    INT 21h                 ; Interrupción DOS para abrir el archivo
-    MOV BX, AX              ; Manejador de archivo en BX
+    MOV AH, 3Dh; Abrir archivo en modo lectura
+    MOV AL, 0; Modo de lectura
+    LEA DX, FILENAME; Nombre del archivo
+    INT 21h; Llamada a DOS para abrir el archivo
+    JC FILE_ERROR; Salto si hubo error al abrir el archivo
 
-    ; Inicializar posición de dibujo
-    MOV SI, MIN_Y           ; Comenzar en la posición Y inicial
-    MOV DI, MIN_X           ; Comenzar en la posición X inicial
+    MOV BX, AX; Guardar manejador de archivo en BX
 
-READ_PIXEL:
-    ; Leer un carácter del archivo
-    MOV AH, 3Fh             ; Función DOS para leer archivo
-    MOV CX, 1               ; Leer 1 byte
-    LEA DX, CHAR_BUFFER     ; Buffer para guardar el carácter leído
-    INT 21h                 ; Interrupción DOS para leer
+    ; Establecer posición inicial de dibujo
+    MOV SI, MIN_Y; POSY inicial (esquina superior izquierda)
+    MOV DI, MIN_X; POSX inicial (esquina superior izquierda)
 
-    ; Comprobar fin del archivo (si retorna 0 bytes)
-    CMP AX, 0
-    JE END_READ
+READ_NEXT_BYTE:
+    MOV AH, 3Fh; Leer byte del archivo
+    MOV CX, 1; Leer un byte
+    LEA DX, CHAR_BUFFER; Buffer para el byte leído
+    INT 21h; Llamada a DOS para leer el byte
+    JC CLOSE_FILE; Si hubo error, cierra el archivo
+    OR AX, AX; Si AX es 0, EOF
+    JZ CLOSE_FILE
 
-    ; Comprobar si el carácter es '%'
-    CMP CHAR_BUFFER, 25h   
-    JE END_READ             ; Si es '%', fin del dibujo
-
-    ; Comprobar si el carácter es '@'
-    CMP CHAR_BUFFER, 40h
-    JE NEW_ROW              ; Si es '@', ir a la siguiente fila
-
-    ; Convertir el carácter leído en un valor de color
+    ; Procesar el carácter leído en CHAR_BUFFER
     MOV AL, CHAR_BUFFER
-    CALL CHAR_TO_COLOR      ; Convierte el carácter en color y lo coloca en BRUSH_COLOR
+    CMP AL, '@'; Fin de fila
+    JE NEW_ROW; Saltar a la nueva fila si es '@'
+    CMP AL, '%'; Fin de la matriz
+    JE END_IMPORT; Finalizar si se encuentra '%'
 
-    ; Pintar el píxel con el color determinado
-    MOV AH, 0Ch             ; Función para dibujar píxel
-    MOV AL, BRUSH_COLOR     ; Color actual del pincel
-    MOV CX, DI              ; Coordenada X (columna)
-    MOV DX, SI              ; Coordenada Y (fila)
-    INT 10h                 ; Llamada a la interrupción para dibujar el píxel
+    ; Convertir el carácter en color
+    CALL CHAR_TO_COLOR; Convertir el carácter a un color hexadecimal en BRUSH_COLOR
 
+    ; Verificar si la posición está dentro de los límites de dibujo
+    CMP DI, MIN_X; Verificar que POSX >= MIN_X
+    JB SKIP_PIXEL
+    CMP DI, MAX_X; Verificar que POSX <= MAX_X
+    JA SKIP_PIXEL
+    CMP SI, MIN_Y; Verificar que POSY >= MIN_Y
+    JB SKIP_PIXEL
+    CMP SI, MAX_Y; Verificar que POSY <= MAX_Y
+    JA SKIP_PIXEL
+
+    ; Dibujar el píxel en la posición actual
+    PAINT_PIXEL DI, SI
+
+SKIP_PIXEL:
     ; Avanzar al siguiente píxel en la fila
     INC DI
-    CMP DI, MAX_X
-    JBE READ_PIXEL          ; Continuar en la fila si no se excede el límite
+    JMP READ_NEXT_BYTE; Repetir para el siguiente byte
 
 NEW_ROW:
-    ; Si se encuentra '@', significa el final de la fila
-    MOV DI, MIN_X           ; Reiniciar X a la posición inicial de la fila
-    INC SI                  ; Avanzar a la siguiente fila (incrementa Y)
-    CMP SI, MAX_Y
-    JBE READ_PIXEL          ; Continuar si no se excede el límite de filas
+    ; Avanzar a la siguiente fila
+    MOV DI, MIN_X; Reiniciar POSX al inicio de la fila
+    INC SI; Mover a la siguiente posición en Y
+    JMP READ_NEXT_BYTE; Continuar leyendo bytes
 
-END_READ:
-    ; Cerrar el archivo
-    MOV AH, 3Eh             ; Función DOS para cerrar archivo
-    MOV BX, BX              ; Manejador de archivo
+END_IMPORT:
+    ; Cerrar el archivo y regresar al evento de teclado
+    JMP CLOSE_FILE
+
+FILE_ERROR:
+    ; Manejo de error en apertura de archivo
+    JMP DETECT_KEY_EVENT
+
+CLOSE_FILE:
+    ; Cerrar el archivo y regresar al evento de teclado
+    MOV AH, 3Eh         ; Cerrar archivo
+    MOV BX, BX          ; Manejador de archivo en BX
     INT 21h
     JMP DETECT_KEY_EVENT
-IMPORT_DRAWING ENDP
 
+IMPORT_DRAWING ENDP
 
 CHAR_TO_COLOR PROC
     ; Convierte un carácter en el color correspondiente (0-F)
