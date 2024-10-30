@@ -8,11 +8,15 @@
     SQUARE_POSY DW 0
     BRUSH_COLOR DB 00H; Color del lápiz (empieza en negro)
     SQUARE_COLOR DB 00H; Color del lápiz (empieza en negro)
+    CHAR_BUFFER DB 0
 
     MIN_X DW 70
     MAX_X DW 470
     MIN_Y DW 80
     MAX_Y DW 315
+
+    FILENAME DB 'drawing.txt', 0
+    HEX_OUTPUT DB 0
 
     POSITION MACRO X, Y
         MOV AH, 02h
@@ -188,15 +192,39 @@ READ_KEYBOARD:
     INT 16h; Llamada a la interrupción del teclado
 
     CMP AL, 00h; Verificar si la tecla es extendida (flechas)
-    JE MOVE_BRUSH_EVENT; Si es una tecla extendida, mover pincel
+    JE CALL_MOVE_BRUSH_EVENT
 
     CMP AL, 6Ch; Comparar con la tecla 'l'
-    JE CLEAR_SCREEN; Si es 'l', limpiar la pantalla
+    JE CALL_CLEAR_SCREEN
 
+    CMP AL, 65h; Comparar con la tecla 'e'
+    JE CALL_EXPORT_DRAWING
+
+    CMP AL, 69h; Comparar con la tecla 'i'
+    JE CALL_IMPORT_DRAWING
+
+    ; Llamar a los eventos de cambio de color y mouse
     CALL CHANGE_COLOR_EVENT
     CALL MOUSE_CLICK_EVENT
 
     JMP READ_KEYBOARD; Seguir leyendo teclas
+
+CALL_MOVE_BRUSH_EVENT:
+    CALL MOVE_BRUSH_EVENT
+    JMP READ_KEYBOARD
+
+CALL_CLEAR_SCREEN:
+    CALL CLEAR_SCREEN
+    JMP READ_KEYBOARD
+
+CALL_EXPORT_DRAWING:
+    CALL EXPORT_DRAWING
+    JMP READ_KEYBOARD
+
+CALL_IMPORT_DRAWING:
+    CALL IMPORT_DRAWING
+    JMP READ_KEYBOARD
+
     RET
 DETECT_KEY_EVENT ENDP
 
@@ -207,8 +235,214 @@ CLEAR_SCREEN PROC
     MOV DX, 184Fh; Esquina inferior derecha (pantalla completa)
     INT 10h; Interrupcion de video
     CALL CLEAN
+    CALL DRAW_BORDER
+    CALL DRAW_COLOR_SQUARES
     JMP DETECT_KEY_EVENT
 CLEAR_SCREEN ENDP
+
+MOVE_BRUSH_EVENT PROC
+    CMP AH, 48h; Flecha hacia arriba
+    JE CALL_UP
+
+    CMP AH, 50h; Flecha hacia abajo
+    JE CALL_DOWN
+
+    CMP AH, 4Bh; Flecha hacia la izquierda
+    JE CALL_LEFT
+
+    CMP AH, 4Dh; Flecha hacia la derecha
+    JE CALL_RIGHT
+
+    JMP DETECT_KEY_EVENT; Si no es ninguna flecha, volver a leer el teclado
+
+CALL_UP:
+    CALL MOVE_UP
+    JMP DETECT_KEY_EVENT
+
+CALL_DOWN:
+    CALL MOVE_DOWN
+    JMP DETECT_KEY_EVENT
+
+CALL_LEFT:
+    CALL MOVE_LEFT
+    JMP DETECT_KEY_EVENT
+
+CALL_RIGHT:
+    CALL MOVE_RIGHT
+    JMP DETECT_KEY_EVENT
+MOVE_BRUSH_EVENT ENDP
+
+IMPORT_DRAWING PROC
+    MOV AH, 3Dh             ; Función DOS para abrir archivo
+    MOV AL, 0               ; Modo de solo lectura
+    LEA DX, FILENAME        ; Nombre del archivo a leer
+    INT 21h                 ; Interrupción DOS para abrir el archivo
+    MOV BX, AX              ; Manejador de archivo en BX
+
+    ; Inicializar posición de dibujo
+    MOV SI, MIN_Y           ; Comenzar en la posición Y inicial
+    MOV DI, MIN_X           ; Comenzar en la posición X inicial
+
+READ_PIXEL:
+    ; Leer un carácter del archivo
+    MOV AH, 3Fh             ; Función DOS para leer archivo
+    MOV CX, 1               ; Leer 1 byte
+    LEA DX, CHAR_BUFFER     ; Buffer para guardar el carácter leído
+    INT 21h                 ; Interrupción DOS para leer
+
+    ; Comprobar fin del archivo (si retorna 0 bytes)
+    CMP AX, 0
+    JE END_READ
+
+    ; Comprobar si el carácter es '%'
+    CMP CHAR_BUFFER, 25h   
+    JE END_READ             ; Si es '%', fin del dibujo
+
+    ; Comprobar si el carácter es '@'
+    CMP CHAR_BUFFER, 40h
+    JE NEW_ROW              ; Si es '@', ir a la siguiente fila
+
+    ; Convertir el carácter leído en un valor de color
+    MOV AL, CHAR_BUFFER
+    CALL CHAR_TO_COLOR      ; Convierte el carácter en color y lo coloca en BRUSH_COLOR
+
+    ; Pintar el píxel con el color determinado
+    MOV AH, 0Ch             ; Función para dibujar píxel
+    MOV AL, BRUSH_COLOR     ; Color actual del pincel
+    MOV CX, DI              ; Coordenada X (columna)
+    MOV DX, SI              ; Coordenada Y (fila)
+    INT 10h                 ; Llamada a la interrupción para dibujar el píxel
+
+    ; Avanzar al siguiente píxel en la fila
+    INC DI
+    CMP DI, MAX_X
+    JBE READ_PIXEL          ; Continuar en la fila si no se excede el límite
+
+NEW_ROW:
+    ; Si se encuentra '@', significa el final de la fila
+    MOV DI, MIN_X           ; Reiniciar X a la posición inicial de la fila
+    INC SI                  ; Avanzar a la siguiente fila (incrementa Y)
+    CMP SI, MAX_Y
+    JBE READ_PIXEL          ; Continuar si no se excede el límite de filas
+
+END_READ:
+    ; Cerrar el archivo
+    MOV AH, 3Eh             ; Función DOS para cerrar archivo
+    MOV BX, BX              ; Manejador de archivo
+    INT 21h
+    JMP DETECT_KEY_EVENT
+IMPORT_DRAWING ENDP
+
+
+CHAR_TO_COLOR PROC
+    ; Convierte un carácter en el color correspondiente (0-F)
+    CMP AL, '0'
+    JB INVALID_CHAR
+    CMP AL, '9'
+    JBE VALID_DIGIT
+    CMP AL, 'A'
+    JB INVALID_CHAR
+    CMP AL, 'F'
+    JA INVALID_CHAR
+
+    ; Convertir letra de A a F a valor 10 a 15
+    SUB AL, 'A' - 10
+    JMP SET_COLOR
+
+VALID_DIGIT:
+    ; Convertir dígito de '0' a '9' a su valor numérico
+    SUB AL, '0'
+
+SET_COLOR:
+    MOV BRUSH_COLOR, AL; Guardar el color en BRUSH_COLOR
+    RET
+
+INVALID_CHAR:
+    MOV BRUSH_COLOR, 0; Si el carácter es inválido, usar color negro
+    RET
+CHAR_TO_COLOR ENDP
+
+EXPORT_DRAWING PROC
+    MOV AH, 3Ch; Llamada para crear archivo
+    MOV CX, 0; Sin atributos especiales
+    LEA DX, FILENAME; Nombre del archivo de exportación
+    INT 21h
+    MOV BX, AX; BX tendrá el manejador de archivo
+
+    MOV SI, MIN_Y; Empezar en la posición Y inicial (fila)
+NEXT_ROW:
+    MOV DI, MIN_X; Empezar en la posición X inicial (columna)
+    MOV BP, 400; Cada fila tiene 400 píxeles
+
+NEXT_PIXEL:
+    ; Leer el color del píxel
+    MOV AH, 0Dh; Función para leer el color del píxel
+    MOV CX, DI; Coordenada X en CX
+    MOV DX, SI; Coordenada Y en DX
+    INT 10h; Llamada a la interrupción para leer el píxel
+    ; AL contiene el color del píxel
+
+    ; Convertir el color del píxel a carácter hexadecimal
+    MOV CL, AL; Guardar el color en CL para convertirlo
+    CALL CONVERT_TO_HEX; Convertir CL a su representación ASCII
+
+    ; Escribir el carácter en el archivo
+    MOV AH, 40h; Función DOS para escribir en archivo
+    MOV CX, 1; Escribir 1 byte
+    MOV DX, OFFSET HEX_OUTPUT ; Dirección del carácter a escribir
+    INT 21h
+
+    ; Avanzar al siguiente píxel en la fila
+    INC DI
+    DEC BP; Decrementar el contador de píxeles
+    JNZ NEXT_PIXEL; Repetir hasta completar 400 píxeles en la fila
+
+    ; Fin de la fila, escribir '@' y salto de línea
+    MOV HEX_OUTPUT, '@'; Guardar '@' en HEX_OUTPUT
+    MOV AH, 40h; Función DOS para escribir en archivo
+    MOV CX, 1
+    MOV DX, OFFSET HEX_OUTPUT
+    INT 21h
+
+    ; Escribir salto de línea
+    MOV HEX_OUTPUT, 0Ah; Carácter de salto de línea
+    MOV AH, 40h
+    MOV CX, 1
+    MOV DX, OFFSET HEX_OUTPUT
+    INT 21h
+
+    ; Avanzar a la siguiente fila
+    INC SI; Incrementa la fila (posición Y)
+    CMP SI, MAX_Y
+    JBE NEXT_ROW
+
+    ; Fin de la matriz, escribir '%'
+    MOV HEX_OUTPUT, '%'; Guardar '%' en HEX_OUTPUT
+    MOV AH, 40h; Función DOS para escribir en archivo
+    MOV CX, 1
+    MOV DX, OFFSET HEX_OUTPUT
+    INT 21h
+
+    ; Cerrar el archivo
+    MOV AH, 3Eh; Función DOS para cerrar archivo
+    MOV BX, BX; Manejador de archivo
+    INT 21h
+
+    JMP DETECT_KEY_EVENT; Regresar al evento de teclado
+EXPORT_DRAWING ENDP
+
+CONVERT_TO_HEX PROC
+    ; Convierte el valor en CL a su representación hexadecimal en ASCII
+    MOV AL, CL
+    AND AL, 0Fh
+    CMP AL, 9
+    JBE HEX_NUM
+    ADD AL, 7
+HEX_NUM:
+    ADD AL, '0'
+    MOV HEX_OUTPUT, AL; Guardar el carácter en HEX_OUTPUT
+    RET
+CONVERT_TO_HEX ENDP
 
 CLEAN PROC
     MOV AX, 0700h 
@@ -239,41 +473,9 @@ NO_CLICK:
     JMP DETECT_KEY_EVENT
 MOUSE_CLICK_EVENT ENDP
 
-MOVE_BRUSH_EVENT PROC
-    CMP AH, 48h ; Flecha hacia arriba
-    JE CALL_UP
-
-    CMP AH, 50h ; Flecha hacia abajo
-    JE CALL_DOWN
-
-    CMP AH, 4Bh ; Flecha hacia la izquierda
-    JE CALL_LEFT
-
-    CMP AH, 4Dh ; Flecha hacia la derecha
-    JE CALL_RIGHT
-
-    JMP DETECT_KEY_EVENT ; Si no es ninguna flecha, volver a leer el teclado
-
-CALL_UP:
-    CALL MOVE_UP
-    JMP DETECT_KEY_EVENT
-
-CALL_DOWN:
-    CALL MOVE_DOWN
-    JMP DETECT_KEY_EVENT
-
-CALL_LEFT:
-    CALL MOVE_LEFT
-    JMP DETECT_KEY_EVENT
-
-CALL_RIGHT:
-    CALL MOVE_RIGHT
-    JMP DETECT_KEY_EVENT
-MOVE_BRUSH_EVENT ENDP
-
 MOVE_UP PROC
     CMP POSY, 80D
-    JLE END_UP ; Si está en el límite superior, no se mueve
+    JLE END_UP; Si está en el límite superior, no se mueve
     ADD POSY, -1
     PAINT_PIXEL POSX, POSY
 END_UP:
@@ -282,7 +484,7 @@ MOVE_UP ENDP
 
 MOVE_DOWN PROC
     CMP POSY, 315D
-    JGE END_DOWN ; Si está en el límite inferior, no se mueve
+    JGE END_DOWN; Si está en el límite inferior, no se mueve
     ADD POSY, 1
     PAINT_PIXEL POSX, POSY
 END_DOWN:
@@ -291,7 +493,7 @@ MOVE_DOWN ENDP
 
 MOVE_LEFT PROC
     CMP POSX, 70D
-    JLE END_LEFT ; Si está en el límite izquierdo, no se mueve
+    JLE END_LEFT; Si está en el límite izquierdo, no se mueve
     ADD POSX, -1
     PAINT_PIXEL POSX, POSY
 END_LEFT:
@@ -300,7 +502,7 @@ MOVE_LEFT ENDP
 
 MOVE_RIGHT PROC
     CMP POSX, 470D
-    JGE END_RIGHT ; Si está en el límite derecho, no se mueve
+    JGE END_RIGHT; Si está en el límite derecho, no se mueve
     ADD POSX, 1
     PAINT_PIXEL POSX, POSY
 END_RIGHT:
