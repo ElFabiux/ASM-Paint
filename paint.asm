@@ -2,8 +2,21 @@
 .STACK 100h
 
 .DATA
-    POSX DW 80; X position
+POSX DW 80; X position
     POSY DW 90; Y position
+    MOUSEX DW 0
+    MOUSEY DW 0
+
+    BUTTON_X1 DW 0
+    BUTTON_Y1 DW 0
+    BUTTON_X2 DW 0
+    BUTTON_Y2 DW 0
+
+    INPUT_X1 DW 0
+    INPUT_Y1 DW 0
+    INPUT_X2 DW 0
+    INPUT_Y2 DW 0
+
     SQUARE_POSX DW 0
     SQUARE_POSY DW 0
     BRUSH_COLOR DB 00H; Color del lápiz (empieza en negro)
@@ -15,7 +28,24 @@
     MIN_Y DW 80
     MAX_Y DW 315
 
-    FILENAME DB 'drawing.txt', 0
+    CLEAN_MSG DB 'LIMPIAR [q]', '$'
+    EXPORT_MSG DB 'EXPORTAR [w]', '$'
+    IMPORT_MSG DB 'IMPORTAR [e]', '$'
+    IMG_MSG DB 'IMAGEN  [r]', '$'
+    COLORS_MSG DB 'COLORES', '$'
+    COLOR1_MSG DB '[1]>', '$'
+    COLOR2_MSG DB '[2]>', '$'
+    COLOR3_MSG DB '[3]>', '$'
+    COLOR4_MSG DB '[4]>', '$'
+    COLOR5_MSG DB '[5]>', '$'
+    COLOR6_MSG DB '[6]>', '$'
+    COLOR7_MSG DB '[7]>', '$'
+    COLOR8_MSG DB '[8]>', '$'
+    COLOR9_MSG DB '[9]>', '$'
+    COLOR0_MSG DB '[0]>', '$'
+    
+    FILENAME DB 'expo', 0; Nombre base del archivo (cambiará según el input)
+    FILEPATH DB 20 DUP(0); Buffer para almacenar FILENAME con la extensión .txt
     HEX_OUTPUT DB 0
 
     POSITION MACRO X, Y
@@ -28,198 +58,267 @@
 
     PAINT_PIXEL MACRO X, Y
         MOV AH, 0CH
-        MOV AL, BRUSH_COLOR; Usa el color actual del lápiz
+        MOV AL, BRUSH_COLOR
         MOV BH, 00
         MOV CX, X
         MOV DX, Y
         INT 10H
     ENDM
 
+    TEXT_POS MACRO X, Y
+        MOV AH, 02H
+        MOV BH, 00
+        MOV DH, X
+        MOV DL, Y
+        INT 10H
+    ENDM
+
+    PRINT_TEXT MACRO MSG, X, Y
+        TEXT_POS X, Y
+        LEA DX, MSG
+        MOV AH, 9H
+        INT 21H
+    ENDM
+
     COL DW 50
     FIL DW 50
     TEXTPOS DW 38
-    MENU_TITLE DB 'MENU DE CONTROLES', 0   
-    COLOR_KEYS DB 'Teclas de color (1-0):', 0
-    EXPORT_KEY DB 'Tecla para exportar: e', 0
-    IMPORT_KEY DB 'Tecla para importar: i', 0
-    CLEAR_KEY  DB 'Tecla para limpiar: l', 0
-    START_MSG  DB 'Presiona cualquier tecla para iniciar...', 0
-    MENU_ROW DB 5              ; Fila de inicio para el menú en modo texto
-    MENU_COL DB 10             ; Columna de inicio para el menú en modo texto
 
 .CODE
 MAIN PROC FAR
     MOV AX, @DATA
     MOV DS, AX
 
-    ; Cambiar a modo texto 80x25, color 3
-    MOV AH, 0                  ; Función para cambiar el modo de video
-    MOV AL, 03H                ; Modo de texto 80x25
-    INT 10H                    ; Interrupción para cambio de modo
-
-    ; Mostrar el menú
-    CALL DISPLAY_MENU          ; Llamada para mostrar el menú de controles
-
-    ; Pausa hasta que se presione una tecla
-    MOV AH, 0
-    INT 16H                    ; Espera una tecla
-
     MOV AH, 00
     MOV AL, 12H
     INT 10H
 
     CALL CLEAN
-    CALL DRAW_BORDER
+    CALL DRAW_AREA_BORDER
+    CALL SET_BUTTON_COORDINATES
+    CALL SET_INPUT_COORDINATES
     CALL DRAW_COLOR_SQUARES
+    CALL PRINT_ALL_MSG
+    ;CALL DRAW_EXPORT_LETTERS
     CALL DETECT_KEY_EVENT
 
     MOV AX, 4C00H
     INT 21H
 MAIN ENDP
 
-DISPLAY_MENU PROC
-    ; Mostrar título del menú
-    MOV DH, MENU_ROW
-    MOV DL, MENU_COL
-    LEA DX, MENU_TITLE
-    CALL PRINT_TEXT
-
-    ; Mostrar teclas de colores
-    INC DH
-    LEA DX, COLOR_KEYS
-    CALL PRINT_TEXT
-
-    ; Mostrar tecla para exportar
-    INC DH
-    LEA DX, EXPORT_KEY
-    CALL PRINT_TEXT
-
-    ; Mostrar tecla para importar
-    INC DH
-    LEA DX, IMPORT_KEY
-    CALL PRINT_TEXT
-
-    ; Mostrar tecla para limpiar
-    INC DH
-    LEA DX, CLEAR_KEY
-    CALL PRINT_TEXT
-
-    ; Mensaje para iniciar
-    ADD DH, 2
-    LEA DX, START_MSG
-    CALL PRINT_TEXT
-    RET
-DISPLAY_MENU ENDP
-
-PRINT_TEXT PROC
-    ; Imprime una cadena en la posición actual del cursor
-    ; Entrada: DX = Dirección de la cadena, DH = Fila, DL = Columna
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-
-    MOV AH, 02H                ; Posicionar cursor
-    MOV BH, 0                  ; Página de pantalla
-    INT 10H
-
-    MOV AH, 09H                ; Función de DOS para imprimir cadena
-    INT 21H                    ; Mostrar la cadena en la posición especificada
-
-    POP DX
-    POP CX
-    POP BX
-    POP AX
-    RET
-PRINT_TEXT ENDP
-
-DRAW_BORDER PROC
-    MOV BRUSH_COLOR, 00H   ; Color negro para el borde
+DRAW_AREA_BORDER PROC
+    MOV BRUSH_COLOR, 00H; Color negro para el borde
 
     ; Línea superior de (69, 79) a (471, 79)
     MOV CX, 69
-TOP_BORDER:
+TOP_BORDER_AR:
     PAINT_PIXEL CX, 79
     INC CX
     CMP CX, 471
-    JBE TOP_BORDER
+    JBE TOP_BORDER_AR
 
     ; Línea derecha de (471, 79) a (471, 316)
     MOV DX, 79
-RIGHT_BORDER:
+RIGHT_BORDER_AR:
     PAINT_PIXEL 471, DX
     INC DX
     CMP DX, 316
-    JBE RIGHT_BORDER
+    JBE RIGHT_BORDER_AR
 
     ; Línea inferior de (69, 316) a (471, 316)
     MOV CX, 69
-BOTTOM_BORDER:
+BOTTOM_BORDER_AR:
     PAINT_PIXEL CX, 316
     INC CX
     CMP CX, 471
-    JBE BOTTOM_BORDER
+    JBE BOTTOM_BORDER_AR
 
     ; Línea izquierda de (69, 79) a (69, 316)
     MOV DX, 79
-LEFT_BORDER:
+LEFT_BORDER_AR:
     PAINT_PIXEL 69, DX
     INC DX
     CMP DX, 316
-    JBE LEFT_BORDER
+    JBE LEFT_BORDER_AR
 
     RET
-DRAW_BORDER ENDP
+DRAW_AREA_BORDER ENDP
+
+SET_BUTTON_COORDINATES PROC
+    ; Configuración del botón de limpiar (Clean)
+    MOV BUTTON_X1, 370
+    MOV BUTTON_Y1, 42
+    MOV BUTTON_X2, 471
+    MOV BUTTON_Y2, 69
+    CALL DRAW_BUTTON_BORDER
+
+    ; Configuración del botón de exportar (Export)
+    MOV BUTTON_X1, 69
+    MOV BUTTON_Y1, 393
+    MOV BUTTON_X2, 170
+    MOV BUTTON_Y2, 420
+    CALL DRAW_BUTTON_BORDER
+
+    ; Configuración del botón de importar (Import)
+    MOV BUTTON_X1, 181
+    MOV BUTTON_Y1, 393
+    MOV BUTTON_X2, 282
+    MOV BUTTON_Y2, 420
+    CALL DRAW_BUTTON_BORDER
+
+    ; Configuración del botón de imagen (Image)
+    MOV BUTTON_X1, 370
+    MOV BUTTON_Y1, 393
+    MOV BUTTON_X2, 471
+    MOV BUTTON_Y2, 420
+    CALL DRAW_BUTTON_BORDER
+
+    ; Configuración del panel de colores (Colors)
+    MOV BUTTON_X1, 491
+    MOV BUTTON_Y1, 42
+    MOV BUTTON_X2, 580
+    MOV BUTTON_Y2, 420
+    CALL DRAW_BUTTON_BORDER
+
+    RET
+SET_BUTTON_COORDINATES ENDP
+
+DRAW_BUTTON_BORDER PROC
+    MOV BRUSH_COLOR, 00H; Color negro para el borde
+
+    ; Línea superior de (BUTTON_X1, BUTTON_Y1) a (BUTTON_X2, BUTTON_Y1)
+    MOV CX, BUTTON_X1
+TOP_BORDER_BTN:
+    PAINT_PIXEL CX, BUTTON_Y1
+    INC CX
+    CMP CX, BUTTON_X2
+    JBE TOP_BORDER_BTN
+
+    ; Línea derecha de (BUTTON_X2, BUTTON_Y1) a (BUTTON_X2, BUTTON_Y2)
+    MOV DX, BUTTON_Y1
+RIGHT_BORDER_BTN:
+    PAINT_PIXEL BUTTON_X2, DX
+    INC DX
+    CMP DX, BUTTON_Y2
+    JBE RIGHT_BORDER_BTN
+
+    ; Línea inferior de (BUTTON_X1, BUTTON_Y2) a (BUTTON_X2, BUTTON_Y2)
+    MOV CX, BUTTON_X1
+BOTTOM_BORDER_BTN:
+    PAINT_PIXEL CX, BUTTON_Y2
+    INC CX
+    CMP CX, BUTTON_X2
+    JBE BOTTOM_BORDER_BTN
+
+    ; Línea izquierda de (BUTTON_X1, BUTTON_Y1) a (BUTTON_X1, BUTTON_Y2)
+    MOV DX, BUTTON_Y1
+LEFT_BORDER_BTN:
+    PAINT_PIXEL BUTTON_X1, DX
+    INC DX
+    CMP DX, BUTTON_Y2
+    JBE LEFT_BORDER_BTN
+
+    RET
+DRAW_BUTTON_BORDER ENDP
+
+; Procedimiento para configurar las coordenadas de cada entrada y llamar a DRAW_INPUT_BORDER
+SET_INPUT_COORDINATES PROC
+    ; Configuración para el borde de la entrada de nombre de texto (TXT Name)
+    MOV INPUT_X1, 69
+    MOV INPUT_Y1, 39
+    MOV INPUT_X2, 285
+    MOV INPUT_Y2, 69
+    CALL DRAW_INPUT_BORDER
+
+    ; Configuración para el borde de la entrada de nombre de imagen (IMG Name)
+    MOV INPUT_X1, 285
+    MOV INPUT_Y1, 340
+    MOV INPUT_X2, 471
+    MOV INPUT_Y2, 370
+    CALL DRAW_INPUT_BORDER
+
+    RET
+SET_INPUT_COORDINATES ENDP
+
+DRAW_INPUT_BORDER PROC
+    MOV BRUSH_COLOR, 00H  ; Color negro para el borde
+
+    ; Línea superior de (INPUT_X1, INPUT_Y1) a (INPUT_X2, INPUT_Y1)
+    MOV CX, INPUT_X1
+TOP_BORDER_INP:
+    PAINT_PIXEL CX, INPUT_Y1
+    INC CX
+    CMP CX, INPUT_X2
+    JBE TOP_BORDER_INP
+
+    ; Línea derecha de (INPUT_X2, INPUT_Y1) a (INPUT_X2, INPUT_Y2)
+    MOV DX, INPUT_Y1
+RIGHT_BORDER_INP:
+    PAINT_PIXEL INPUT_X2, DX
+    INC DX
+    CMP DX, INPUT_Y2
+    JBE RIGHT_BORDER_INP
+
+    ; Línea inferior de (INPUT_X1, INPUT_Y2) a (INPUT_X2, INPUT_Y2)
+    MOV CX, INPUT_X1
+BOTTOM_BORDER_INP:
+    PAINT_PIXEL CX, INPUT_Y2
+    INC CX
+    CMP CX, INPUT_X2
+    JBE BOTTOM_BORDER_INP
+
+    ; Línea izquierda de (INPUT_X1, INPUT_Y1) a (INPUT_X1, INPUT_Y2)
+    MOV DX, INPUT_Y1
+LEFT_BORDER_INP:
+    PAINT_PIXEL INPUT_X1, DX
+    INC DX
+    CMP DX, INPUT_Y2
+    JBE LEFT_BORDER_INP
+
+    RET
+DRAW_INPUT_BORDER ENDP
 
 DRAW_COLOR_SQUARES PROC
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 10
+    MOV SQUARE_POSX, 540
+
+    MOV SQUARE_POSY, 50
     MOV SQUARE_COLOR, 00H
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 35
+    MOV SQUARE_POSY, 89
     MOV SQUARE_COLOR, 0CH
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 60
+    MOV SQUARE_POSY, 128
     MOV SQUARE_COLOR, 09H
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 85
+    MOV SQUARE_POSY, 162
     MOV SQUARE_COLOR, 0EH
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 110
+    MOV SQUARE_POSY, 201
     MOV SQUARE_COLOR, 0AH
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 135
+    MOV SQUARE_POSY, 240
     MOV SQUARE_COLOR, 05H
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 160
+    MOV SQUARE_POSY, 274
     MOV SQUARE_COLOR, 06H
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 185
+    MOV SQUARE_POSY, 313
     MOV SQUARE_COLOR, 0DH
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 210
+    MOV SQUARE_POSY, 352
     MOV SQUARE_COLOR, 03H
     CALL DRAW_SQUARE
 
-    MOV SQUARE_POSX, 610
-    MOV SQUARE_POSY, 235
+    MOV SQUARE_POSY, 386
     MOV SQUARE_COLOR, 08H
     CALL DRAW_SQUARE
 
@@ -235,11 +334,11 @@ DRAW_SQUARE PROC
     MOV CX, SQUARE_POSX; Cargar la posición X del cuadrado
     MOV DX, SQUARE_POSY; Cargar la posición Y del cuadrado
 
-    MOV BX, 20; Ancho y alto del cuadrado
+    MOV BX, 30; Ancho y alto del cuadrado
 
     DRAW_ROW:
         PUSH CX; Guardar la posición X inicial de la fila
-        MOV SI, 20; Número de columnas a dibujar (ancho del cuadrado)
+        MOV SI, 30; Número de columnas a dibujar (ancho del cuadrado)
 
     DRAW_PIXEL:
         MOV AH, 0CH; Función de interrupción para dibujar píxel (modo gráfico)
@@ -262,6 +361,25 @@ DRAW_SQUARE PROC
     RET
 DRAW_SQUARE ENDP
 
+PRINT_ALL_MSG PROC
+    PRINT_TEXT CLEAN_MSG, 3, 47
+    PRINT_TEXT EXPORT_MSG, 25, 9
+    PRINT_TEXT IMPORT_MSG, 25, 23
+    PRINT_TEXT IMG_MSG, 25, 47
+    PRINT_TEXT COLORS_MSG, 2, 62
+    PRINT_TEXT COLOR1_MSG, 4, 63
+    PRINT_TEXT COLOR2_MSG, 6, 63
+    PRINT_TEXT COLOR3_MSG, 8, 63
+    PRINT_TEXT COLOR4_MSG, 11, 63
+    PRINT_TEXT COLOR5_MSG, 13, 63
+    PRINT_TEXT COLOR6_MSG, 15, 63
+    PRINT_TEXT COLOR7_MSG, 18, 63
+    PRINT_TEXT COLOR8_MSG, 20, 63
+    PRINT_TEXT COLOR9_MSG, 22, 63
+    PRINT_TEXT COLOR0_MSG, 25, 63
+    RET
+PRINT_ALL_MSG ENDP
+
 DETECT_KEY_EVENT PROC
 READ_KEYBOARD:
     MOV AH, 00h; Leer tecla presionada
@@ -270,13 +388,13 @@ READ_KEYBOARD:
     CMP AL, 00h; Verificar si la tecla es extendida (flechas)
     JE CALL_MOVE_BRUSH_EVENT
 
-    CMP AL, 6Ch; Comparar con la tecla 'l'
+    CMP AL, 71h; Comparar con la tecla 'q'
     JE CALL_CLEAR_SCREEN
 
-    CMP AL, 65h; Comparar con la tecla 'e'
+    CMP AL, 77h; Comparar con la tecla 'w'
     JE CALL_EXPORT_DRAWING
 
-    CMP AL, 69h; Comparar con la tecla 'i'
+    CMP AL, 65h; Comparar con la tecla 'e'
     JE CALL_IMPORT_DRAWING
 
     ; Llamar a los eventos de cambio de color y mouse
@@ -311,9 +429,14 @@ CLEAR_SCREEN PROC
     MOV DX, 184Fh; Esquina inferior derecha (pantalla completa)
     INT 10h; Interrupcion de video
     CALL CLEAN
-    CALL DRAW_BORDER
+    CALL DRAW_AREA_BORDER
+    CALL SET_BUTTON_COORDINATES
+    CALL SET_INPUT_COORDINATES
     CALL DRAW_COLOR_SQUARES
-    JMP DETECT_KEY_EVENT
+    CALL PRINT_ALL_MSG
+    ;CALL DRAW_EXPORT_LETTERS
+    CALL DRAW_COLOR_SQUARES
+    RET
 CLEAR_SCREEN ENDP
 
 MOVE_BRUSH_EVENT PROC
@@ -329,46 +452,76 @@ MOVE_BRUSH_EVENT PROC
     CMP AH, 4Dh; Flecha hacia la derecha
     JE CALL_RIGHT
 
-    JMP DETECT_KEY_EVENT; Si no es ninguna flecha, volver a leer el teclado
+    RET; Si no es ninguna flecha, volver a leer el teclado
 
 CALL_UP:
     CALL MOVE_UP
-    JMP DETECT_KEY_EVENT
+    RET
 
 CALL_DOWN:
     CALL MOVE_DOWN
-    JMP DETECT_KEY_EVENT
+    RET
 
 CALL_LEFT:
     CALL MOVE_LEFT
-    JMP DETECT_KEY_EVENT
+    RET
 
 CALL_RIGHT:
     CALL MOVE_RIGHT
-    JMP DETECT_KEY_EVENT
+    RET
 MOVE_BRUSH_EVENT ENDP
 
+; Procedimiento principal para importar el dibujo
 IMPORT_DRAWING PROC
-    MOV AH, 3Dh; Abrir archivo en modo lectura
+    CALL CHECK_FILEPATH; Verificar si FILEPATH está vacío
+    JE NO_FILEPATH                    ; Si está vacío, no hacer nada
+
+    CALL OPEN_FILE_READ_MODE; Intentar abrir el archivo en modo lectura
+    JC FILE_ERROR_I; Si hay error, saltar a FILE_ERROR_I
+
+    CALL READ_PIXELS_FROM_FILE; Leer los datos del archivo y procesarlos
+    CALL CLOSE_FILE_I; Cerrar el archivo después de leer
+
+    JMP DETECT_KEY_EVENT; Volver al ciclo principal
+
+NO_FILEPATH:
+    RET; No hacer nada si FILEPATH está vacío
+
+FILE_ERROR_I:
+    RET
+IMPORT_DRAWING ENDP
+
+; Verifica si FILEPATH está vacío
+CHECK_FILEPATH PROC
+    MOV AL, FILEPATH
+    CMP AL, 0
+    RET
+CHECK_FILEPATH ENDP
+
+; Abre el archivo especificado en FILEPATH en modo lectura
+OPEN_FILE_READ_MODE PROC
+    MOV AH, 3Dh; Función para abrir archivo
     MOV AL, 0; Modo de lectura
-    LEA DX, FILENAME; Nombre del archivo
-    INT 21h; Llamada a DOS para abrir el archivo
-    JC FILE_ERROR; Salto si hubo error al abrir el archivo
+    LEA DX, FILEPATH; Dirección de FILEPATH
+    INT 21h; Interrupción para abrir el archivo
+    MOV BX, AX; Guardar el manejador de archivo en BX
+    RET
+OPEN_FILE_READ_MODE ENDP
 
-    MOV BX, AX; Guardar manejador de archivo en BX
-
+; Lee los datos de los píxeles desde el archivo y los dibuja
+READ_PIXELS_FROM_FILE PROC
     ; Establecer posición inicial de dibujo
     MOV SI, MIN_Y; POSY inicial (esquina superior izquierda)
     MOV DI, MIN_X; POSX inicial (esquina superior izquierda)
 
 READ_NEXT_BYTE:
-    MOV AH, 3Fh; Leer byte del archivo
-    MOV CX, 1; Leer un byte
-    LEA DX, CHAR_BUFFER; Buffer para el byte leído
-    INT 21h; Llamada a DOS para leer el byte
-    JC CLOSE_FILE; Si hubo error, cierra el archivo
-    OR AX, AX; Si AX es 0, EOF
-    JZ CLOSE_FILE
+    MOV AH, 3Fh; Función para leer del archivo
+    MOV CX, 1; Leer 1 byte
+    LEA DX, CHAR_BUFFER; Dirección de CHAR_BUFFER
+    INT 21h; Interrupción para leer el byte
+    JC CLOSE_FILE_I; Si hay error, cierra el archivo
+    OR AX, AX; Si AX es 0, es EOF
+    JZ CLOSE_FILE_I
 
     ; Procesar el carácter leído en CHAR_BUFFER
     MOV AL, CHAR_BUFFER
@@ -377,49 +530,48 @@ READ_NEXT_BYTE:
     CMP AL, '%'; Fin de la matriz
     JE END_IMPORT; Finalizar si se encuentra '%'
 
-    ; Convertir el carácter en color
-    CALL CHAR_TO_COLOR; Convertir el carácter a un color hexadecimal en BRUSH_COLOR
+    CALL CHAR_TO_COLOR; Convertir el carácter a color en BRUSH_COLOR
+    CALL DRAW_PIXEL_IF_VALID; Dibujar píxel si está dentro de los límites
 
-    ; Verificar si la posición está dentro de los límites de dibujo
-    CMP DI, MIN_X; Verificar que POSX >= MIN_X
-    JB SKIP_PIXEL
-    CMP DI, MAX_X; Verificar que POSX <= MAX_X
-    JA SKIP_PIXEL
-    CMP SI, MIN_Y; Verificar que POSY >= MIN_Y
-    JB SKIP_PIXEL
-    CMP SI, MAX_Y; Verificar que POSY <= MAX_Y
-    JA SKIP_PIXEL
-
-    ; Dibujar el píxel en la posición actual
-    PAINT_PIXEL DI, SI
-
-SKIP_PIXEL:
     ; Avanzar al siguiente píxel en la fila
     INC DI
-    JMP READ_NEXT_BYTE; Repetir para el siguiente byte
+    JMP READ_NEXT_BYTE
 
 NEW_ROW:
     ; Avanzar a la siguiente fila
     MOV DI, MIN_X; Reiniciar POSX al inicio de la fila
     INC SI; Mover a la siguiente posición en Y
-    JMP READ_NEXT_BYTE; Continuar leyendo bytes
+    JMP READ_NEXT_BYTE
 
 END_IMPORT:
-    ; Cerrar el archivo y regresar al evento de teclado
-    JMP CLOSE_FILE
+    RET
+READ_PIXELS_FROM_FILE ENDP
 
-FILE_ERROR:
-    ; Manejo de error en apertura de archivo
-    JMP DETECT_KEY_EVENT
+; Verifica si la posición está dentro de los límites y dibuja el píxel
+DRAW_PIXEL_IF_VALID PROC
+    ; Verificar si la posición actual DI, SI está dentro de los límites de MIN_X, MAX_X, MIN_Y, MAX_Y
+    CMP DI, MIN_X
+    JB SKIP_PIXEL
+    CMP DI, MAX_X
+    JA SKIP_PIXEL
+    CMP SI, MIN_Y
+    JB SKIP_PIXEL
+    CMP SI, MAX_Y
+    JA SKIP_PIXEL
 
-CLOSE_FILE:
-    ; Cerrar el archivo y regresar al evento de teclado
-    MOV AH, 3Eh         ; Cerrar archivo
-    MOV BX, BX          ; Manejador de archivo en BX
+    ; Si está dentro de los límites, dibuja el píxel en la posición actual
+    PAINT_PIXEL DI, SI
+
+SKIP_PIXEL:
+    RET
+DRAW_PIXEL_IF_VALID ENDP
+
+; Cierra el archivo usando el manejador en BX
+CLOSE_FILE_I PROC
+    MOV AH, 3Eh; Función para cerrar archivo
     INT 21h
-    JMP DETECT_KEY_EVENT
-
-IMPORT_DRAWING ENDP
+    RET
+CLOSE_FILE_I ENDP
 
 CHAR_TO_COLOR PROC
     ; Convierte un carácter en el color correspondiente (0-F)
@@ -449,74 +601,137 @@ INVALID_CHAR:
     RET
 CHAR_TO_COLOR ENDP
 
+; Procedimiento principal para exportar el dibujo
 EXPORT_DRAWING PROC
-    MOV AH, 3Ch; Llamada para crear archivo
-    MOV CX, 0; Sin atributos especiales
-    LEA DX, FILENAME; Nombre del archivo de exportación
-    INT 21h
-    MOV BX, AX; BX tendrá el manejador de archivo
+    CALL CHECK_FILENAME; Verificar si FILENAME está vacío
+    JE NO_FILENAME; Si está vacío, no hacer nada
 
+    CALL CREATE_FILEPATH; Crear FILEPATH con .txt al final
+    CALL OPEN_FILE; Intentar abrir el archivo
+    JC FILE_ERROR_E; Si hay error, saltar a FILE_ERROR_E
+
+    CALL WRITE_PIXELS_TO_FILE; Escribir los datos de los píxeles en el archivo
+    CALL CLOSE_FILE_E; Cerrar el archivo
+
+    JMP DETECT_KEY_EVENT; Volver al ciclo principal
+
+NO_FILENAME:
+    RET; No hacer nada si FILENAME está vacío
+
+FILE_ERROR_E:
+    RET
+EXPORT_DRAWING ENDP
+
+; Verifica si FILENAME está vacío
+CHECK_FILENAME PROC
+    MOV AL, FILENAME
+    CMP AL, 0
+    RET
+CHECK_FILENAME ENDP
+
+; Copia FILENAME a FILEPATH y agrega la extensión ".txt"
+CREATE_FILEPATH PROC
+    LEA SI, FILENAME; Dirección de FILENAME en SI
+    LEA DI, FILEPATH; Dirección de FILEPATH en DI
+
+COPY_LOOP:
+    MOV AL, [SI]; Cargar el byte de FILENAME
+    CMP AL, 0
+    JE ADD_EXTENSION; Si llegamos al final, saltar para agregar ".txt"
+    MOV [DI], AL; Copiar el byte en FILEPATH
+    INC SI
+    INC DI
+    JMP COPY_LOOP
+
+ADD_EXTENSION:
+    MOV BYTE PTR [DI], '.'; Agregar '.'
+    INC DI
+    MOV BYTE PTR [DI], 't'; Agregar 't'
+    INC DI
+    MOV BYTE PTR [DI], 'x'; Agregar 'x'
+    INC DI
+    MOV BYTE PTR [DI], 't'; Agregar 't'
+    INC DI
+    MOV BYTE PTR [DI], 0; Agregar terminador de cadena
+    RET
+CREATE_FILEPATH ENDP
+
+; Intenta abrir el archivo especificado en FILEPATH
+OPEN_FILE PROC
+    MOV AH, 3Ch ; Función para crear archivo
+    MOV CX, 0 ; Sin atributos especiales
+    LEA DX, FILEPATH; Dirección de FILEPATH
+    INT 21h
+    MOV BX, AX; Guardar el manejador de archivo en BX
+    RET
+OPEN_FILE ENDP
+
+; Escribe los datos de los píxeles en el archivo
+WRITE_PIXELS_TO_FILE PROC
     MOV SI, MIN_Y; Empezar en la posición Y inicial (fila)
 NEXT_ROW:
     MOV DI, MIN_X; Empezar en la posición X inicial (columna)
     MOV BP, 400; Cada fila tiene 400 píxeles
 
 NEXT_PIXEL:
-    ; Leer el color del píxel
     MOV AH, 0Dh; Función para leer el color del píxel
     MOV CX, DI; Coordenada X en CX
     MOV DX, SI; Coordenada Y en DX
     INT 10h; Llamada a la interrupción para leer el píxel
-    ; AL contiene el color del píxel
 
-    ; Convertir el color del píxel a carácter hexadecimal
     MOV CL, AL; Guardar el color en CL para convertirlo
     CALL CONVERT_TO_HEX; Convertir CL a su representación ASCII
 
-    ; Escribir el carácter en el archivo
     MOV AH, 40h; Función DOS para escribir en archivo
     MOV CX, 1; Escribir 1 byte
-    MOV DX, OFFSET HEX_OUTPUT ; Dirección del carácter a escribir
+    MOV DX, OFFSET HEX_OUTPUT; Dirección del carácter a escribir
     INT 21h
 
-    ; Avanzar al siguiente píxel en la fila
     INC DI
-    DEC BP; Decrementar el contador de píxeles
-    JNZ NEXT_PIXEL; Repetir hasta completar 400 píxeles en la fila
+    DEC BP
+    JNZ NEXT_PIXEL
 
-    ; Fin de la fila, escribir '@' y salto de línea
-    MOV HEX_OUTPUT, '@'; Guardar '@' en HEX_OUTPUT
-    MOV AH, 40h; Función DOS para escribir en archivo
-    MOV CX, 1
-    MOV DX, OFFSET HEX_OUTPUT
-    INT 21h
+    CALL WRITE_NEWLINE; Escribir nueva línea entre filas
+    INC SI
+    CMP SI, MAX_Y
+    JBE NEXT_ROW
 
-    ; Escribir salto de línea
-    MOV HEX_OUTPUT, 0Ah; Carácter de salto de línea
+    CALL WRITE_END_MARKER; Escribir el marcador de fin
+    RET
+WRITE_PIXELS_TO_FILE ENDP
+
+; Escribe una nueva línea en el archivo
+WRITE_NEWLINE PROC
+    MOV HEX_OUTPUT, '@'
     MOV AH, 40h
     MOV CX, 1
     MOV DX, OFFSET HEX_OUTPUT
     INT 21h
 
-    ; Avanzar a la siguiente fila
-    INC SI; Incrementa la fila (posición Y)
-    CMP SI, MAX_Y
-    JBE NEXT_ROW
-
-    ; Fin de la matriz, escribir '%'
-    MOV HEX_OUTPUT, '%'; Guardar '%' en HEX_OUTPUT
-    MOV AH, 40h; Función DOS para escribir en archivo
+    MOV HEX_OUTPUT, 0Ah
+    MOV AH, 40h
     MOV CX, 1
     MOV DX, OFFSET HEX_OUTPUT
     INT 21h
+    RET
+WRITE_NEWLINE ENDP
 
-    ; Cerrar el archivo
-    MOV AH, 3Eh; Función DOS para cerrar archivo
-    MOV BX, BX; Manejador de archivo
+; Escribe el marcador de fin de archivo '%'
+WRITE_END_MARKER PROC
+    MOV HEX_OUTPUT, '%'
+    MOV AH, 40h
+    MOV CX, 1
+    MOV DX, OFFSET HEX_OUTPUT
     INT 21h
+    RET
+WRITE_END_MARKER ENDP
 
-    JMP DETECT_KEY_EVENT; Regresar al evento de teclado
-EXPORT_DRAWING ENDP
+; Cierra el archivo usando el manejador en BX
+CLOSE_FILE_E PROC
+    MOV AH, 3Eh
+    INT 21h
+    RET
+CLOSE_FILE_E ENDP
 
 CONVERT_TO_HEX PROC
     ; Convierte el valor en CL a su representación hexadecimal en ASCII
@@ -539,25 +754,33 @@ CLEAN PROC
     INT 10h
     RET
 CLEAN ENDP
+;........................................................................
+DETECT_CLICK_ON_CLEAN_BUTTON PROC
+
+    RET
+DETECT_CLICK_ON_CLEAN_BUTTON ENDP
 
 MOUSE_CLICK_EVENT PROC
-    MOV AX, 0003h; Llama a la interrupción 33h para obtener el estado del mouse
-    INT 33h; Llama a la interrupción del mouse
+    ;MOV AX, 0003h; Llama a la interrupción 33h para obtener el estado del mouse
+    ;INT 33h; Llama a la interrupción del mouse
 
-    TEST BX, 0001h; Verifica si el botón izquierdo está presionado (primer bit de BX)
-    JZ NO_CLICK; Si no está presionado, salta a NO_CLICK
+    ;TEST BX, 0001h; Verifica si el botón izquierdo está presionado (primer bit de BX)
+    ;JZ NO_CLICK; Si no está presionado, salta a NO_CLICK
 
     ; Guardar la posición X del mouse
-    MOV POSX, CX; Almacena la posición X en POSX
+    ;MOV POSX, CX; Almacena la posición X en POSX
 
     ; Guardar la posición Y del mouse
-    MOV POSY, DX; Almacena la posición Y en POSY
+    ;MOV POSY, DX; Almacena la posición Y en POSY
+
+    ; Verifica si el clic está dentro del botón de limpiar
+    CALL DETECT_CLICK_ON_CLEAN_BUTTON
 
     ; Actualiza la posición del pincel
-    PAINT_PIXEL POSX, POSY ; Dibuja en la nueva posición con el color actual del pincel
+    ;PAINT_PIXEL POSX, POSY ; Dibuja en la nueva posición con el color actual del pincel
 
-NO_CLICK:
-    JMP DETECT_KEY_EVENT
+;NO_CLICK:
+    RET
 MOUSE_CLICK_EVENT ENDP
 
 MOVE_UP PROC
@@ -627,47 +850,47 @@ CHANGE_COLOR_EVENT PROC
     CMP AL, 30h; Numero 0
     JE CHANGE_GRAY
 
-    JMP DETECT_KEY_EVENT; Seguir leyendo si no es la tecla deseada
+    RET; Seguir leyendo si no es la tecla deseada
 
 CHANGE_BLACK:
     MOV BRUSH_COLOR, 00H; Color del lapiz a negro
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_RED:
     MOV BRUSH_COLOR, 0CH; Color del lapiz a rojo
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_BLUE:
     MOV BRUSH_COLOR, 09H; Color del lapiz a azul
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_YELLOW:
     MOV BRUSH_COLOR, 0EH; Color del lapiz a amarillo
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_GREEN:
     MOV BRUSH_COLOR, 0AH; Color del lapiz a verde
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_PURPLE:
     MOV BRUSH_COLOR, 05H; Color del lapiz a purpura
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_BROWN:
     MOV BRUSH_COLOR, 06H; Color del lapiz a marron
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_PINK:
     MOV BRUSH_COLOR, 0DH; Color del lapiz a rosado
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_CYAN:
     MOV BRUSH_COLOR, 03H; Color del lapiz a cian
-    JMP DETECT_KEY_EVENT
+    RET
 
 CHANGE_GRAY:
     MOV BRUSH_COLOR, 08H; Color del lapiz a gris
-    JMP DETECT_KEY_EVENT
+    RET
 CHANGE_COLOR_EVENT ENDP
 
 END MAIN
