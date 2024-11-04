@@ -44,7 +44,7 @@ POSX DW 80; X position
     COLOR9_MSG DB '[9]>', '$'
     COLOR0_MSG DB '[0]>', '$'
     
-    FILENAME DB 'expo', 0; Nombre base del archivo (cambiará según el input)
+    FILENAME DB 'test.txt', 0; Nombre base del archivo (cambiará según el input)
     FILEPATH DB 20 DUP(0); Buffer para almacenar FILENAME con la extensión .txt
     HEX_OUTPUT DB 0
 
@@ -147,35 +147,35 @@ DRAW_AREA_BORDER ENDP
 SET_BUTTON_COORDINATES PROC
     ; Configuración del botón de limpiar (Clean)
     MOV BUTTON_X1, 370
-    MOV BUTTON_Y1, 42
+    MOV BUTTON_Y1, 45
     MOV BUTTON_X2, 471
-    MOV BUTTON_Y2, 69
+    MOV BUTTON_Y2, 66
     CALL DRAW_BUTTON_BORDER
 
     ; Configuración del botón de exportar (Export)
     MOV BUTTON_X1, 69
-    MOV BUTTON_Y1, 393
+    MOV BUTTON_Y1, 397
     MOV BUTTON_X2, 170
-    MOV BUTTON_Y2, 420
+    MOV BUTTON_Y2, 418
     CALL DRAW_BUTTON_BORDER
 
     ; Configuración del botón de importar (Import)
     MOV BUTTON_X1, 181
-    MOV BUTTON_Y1, 393
+    MOV BUTTON_Y1, 397
     MOV BUTTON_X2, 282
-    MOV BUTTON_Y2, 420
+    MOV BUTTON_Y2, 418
     CALL DRAW_BUTTON_BORDER
 
     ; Configuración del botón de imagen (Image)
     MOV BUTTON_X1, 370
-    MOV BUTTON_Y1, 393
+    MOV BUTTON_Y1, 397
     MOV BUTTON_X2, 471
-    MOV BUTTON_Y2, 420
+    MOV BUTTON_Y2, 418
     CALL DRAW_BUTTON_BORDER
 
     ; Configuración del panel de colores (Colors)
     MOV BUTTON_X1, 491
-    MOV BUTTON_Y1, 42
+    MOV BUTTON_Y1, 45
     MOV BUTTON_X2, 580
     MOV BUTTON_Y2, 420
     CALL DRAW_BUTTON_BORDER
@@ -224,13 +224,6 @@ DRAW_BUTTON_BORDER ENDP
 ; Procedimiento para configurar las coordenadas de cada entrada y llamar a DRAW_INPUT_BORDER
 SET_INPUT_COORDINATES PROC
     ; Configuración para el borde de la entrada de nombre de texto (TXT Name)
-    MOV INPUT_X1, 69
-    MOV INPUT_Y1, 39
-    MOV INPUT_X2, 285
-    MOV INPUT_Y2, 69
-    CALL DRAW_INPUT_BORDER
-
-    ; Configuración para el borde de la entrada de nombre de imagen (IMG Name)
     MOV INPUT_X1, 285
     MOV INPUT_Y1, 340
     MOV INPUT_X2, 471
@@ -397,6 +390,9 @@ READ_KEYBOARD:
     CMP AL, 65h; Comparar con la tecla 'e'
     JE CALL_IMPORT_DRAWING
 
+    CMP AL, 61h; Comparar con la tecla 'a'
+    JE CALL_GET
+
     ; Llamar a los eventos de cambio de color y mouse
     CALL CHANGE_COLOR_EVENT
     CALL MOUSE_CLICK_EVENT
@@ -419,8 +415,57 @@ CALL_IMPORT_DRAWING:
     CALL IMPORT_DRAWING
     JMP READ_KEYBOARD
 
+CALL_GET:
+    CALL GET_FILENAME
+    JMP READ_KEYBOARD
+
     RET
 DETECT_KEY_EVENT ENDP
+
+GET_FILENAME PROC
+        MOV CX, 0                        ; Inicializar contador de caracteres leídos
+        MOV BX, OFFSET FILENAME          ; Puntero al inicio del buffer del nombre del archivo
+        MOV DH, 22                       ; Configurar la fila inicial
+        MOV DL, 37                       ; Configurar la columna inicial
+
+    read_loop:
+        ; Mover el cursor a la posición deseada
+        MOV AH, 02h                      ; Función de BIOS para mover el cursor
+        MOV BH, 0                        ; Página de pantalla 0
+        INT 10h                          ; Interrupción de video
+
+        MOV AH, 0                        ; Llamar a la BIOS para obtener el carácter
+        INT 16h                          ; Interrupción 16h, función 0 - Leer carácter del teclado
+        CMP AL, 0Dh                      ; Verificar si se presionó Enter (código ASCII 0Dh)
+        JE end_input                     ; Si es Enter, terminar la entrada
+
+        ; Mostrar el carácter en pantalla en modo texto con color blanco sobre fondo negro
+        MOV AH, 09h                      ; Función para mostrar con atributo
+        MOV BH, 0                        ; Página de pantalla 0
+        MOV BL, 0Fh                      ; Atributo: blanco sobre fondo negro
+        MOV CX, 1                        ; Número de veces a mostrar el carácter
+        INT 10h                          ; Interrupción 10h para salida en video
+
+        ; Guardar el carácter en el buffer
+        MOV [BX], AL                     ; Almacenar el carácter en filename
+        INC BX                           ; Avanzar a la siguiente posición en el buffer
+        INC CX                           ; Incrementar el contador de caracteres
+
+        ; Avanzar la posición en pantalla
+        INC DL                           ; Mover la columna para el siguiente carácter
+        CMP DL, 79                       ; Limitar la columna a 79 (última columna)
+        JBE read_loop                    ; Si no se supera, continuar leyendo caracteres
+        MOV DL, 10                       ; Reiniciar columna a startX si se supera el límite
+        INC DH                           ; Avanzar a la siguiente fila
+
+        CMP CX, 20                       ; Comparar con el tamaño máximo del buffer
+        JB read_loop                     ; Si no se ha alcanzado, repetir el bucle
+
+    end_input:
+        MOV BYTE PTR [BX], 0             ; Terminar la cadena con un nulo (0)
+        RET
+GET_FILENAME ENDP
+
 
 CLEAR_SCREEN PROC
     MOV AX, 0600h
@@ -493,7 +538,7 @@ IMPORT_DRAWING ENDP
 
 ; Verifica si FILEPATH está vacío
 CHECK_FILEPATH PROC
-    MOV AL, FILEPATH
+    MOV AL, FILENAME
     CMP AL, 0
     RET
 CHECK_FILEPATH ENDP
@@ -502,7 +547,7 @@ CHECK_FILEPATH ENDP
 OPEN_FILE_READ_MODE PROC
     MOV AH, 3Dh; Función para abrir archivo
     MOV AL, 0; Modo de lectura
-    LEA DX, FILEPATH; Dirección de FILEPATH
+    LEA DX, FILENAME; Dirección de FILEPATH
     INT 21h; Interrupción para abrir el archivo
     MOV BX, AX; Guardar el manejador de archivo en BX
     RET
