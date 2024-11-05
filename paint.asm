@@ -32,6 +32,7 @@ POSX DW 80; X position
     EXPORT_MSG DB 'EXPORTAR [w]', '$'
     IMPORT_MSG DB 'IMPORTAR [e]', '$'
     IMG_MSG DB 'IMAGEN  [r]', '$'
+    NAME_MSG DB 'NOMBRE [a]->', '$'
     COLORS_MSG DB 'COLORES', '$'
     COLOR1_MSG DB '[1]>', '$'
     COLOR2_MSG DB '[2]>', '$'
@@ -44,8 +45,7 @@ POSX DW 80; X position
     COLOR9_MSG DB '[9]>', '$'
     COLOR0_MSG DB '[0]>', '$'
     
-    FILENAME DB 'test.txt', 0; Nombre base del archivo (cambiará según el input)
-    FILEPATH DB 20 DUP(0); Buffer para almacenar FILENAME con la extensión .txt
+    FILENAME DB 20 DUP(0); Buffer para almacenar FILENAME con la extensión .txt
     HEX_OUTPUT DB 0
 
     POSITION MACRO X, Y
@@ -99,7 +99,6 @@ MAIN PROC FAR
     CALL SET_INPUT_COORDINATES
     CALL DRAW_COLOR_SQUARES
     CALL PRINT_ALL_MSG
-    ;CALL DRAW_EXPORT_LETTERS
     CALL DETECT_KEY_EVENT
 
     MOV AX, 4C00H
@@ -224,8 +223,8 @@ DRAW_BUTTON_BORDER ENDP
 ; Procedimiento para configurar las coordenadas de cada entrada y llamar a DRAW_INPUT_BORDER
 SET_INPUT_COORDINATES PROC
     ; Configuración para el borde de la entrada de nombre de texto (TXT Name)
-    MOV INPUT_X1, 285
-    MOV INPUT_Y1, 340
+    MOV INPUT_X1, 69
+    MOV INPUT_Y1, 349
     MOV INPUT_X2, 471
     MOV INPUT_Y2, 370
     CALL DRAW_INPUT_BORDER
@@ -359,6 +358,7 @@ PRINT_ALL_MSG PROC
     PRINT_TEXT EXPORT_MSG, 25, 9
     PRINT_TEXT IMPORT_MSG, 25, 23
     PRINT_TEXT IMG_MSG, 25, 47
+    PRINT_TEXT NAME_MSG, 22, 9
     PRINT_TEXT COLORS_MSG, 2, 62
     PRINT_TEXT COLOR1_MSG, 4, 63
     PRINT_TEXT COLOR2_MSG, 6, 63
@@ -391,7 +391,7 @@ READ_KEYBOARD:
     JE CALL_IMPORT_DRAWING
 
     CMP AL, 61h; Comparar con la tecla 'a'
-    JE CALL_GET
+    JE CALL_WRITE_FILENAME
 
     ; Llamar a los eventos de cambio de color y mouse
     CALL CHANGE_COLOR_EVENT
@@ -415,7 +415,7 @@ CALL_IMPORT_DRAWING:
     CALL IMPORT_DRAWING
     JMP READ_KEYBOARD
 
-CALL_GET:
+CALL_WRITE_FILENAME:
     CALL GET_FILENAME
     JMP READ_KEYBOARD
 
@@ -423,49 +423,86 @@ CALL_GET:
 DETECT_KEY_EVENT ENDP
 
 GET_FILENAME PROC
-        MOV CX, 0                        ; Inicializar contador de caracteres leídos
-        MOV BX, OFFSET FILENAME          ; Puntero al inicio del buffer del nombre del archivo
-        MOV DH, 22                       ; Configurar la fila inicial
-        MOV DL, 37                       ; Configurar la columna inicial
+    MOV CX, 0                     
+    MOV BX, OFFSET FILENAME        
+    MOV DH, 22                 
+    MOV DL, 22                 
 
-    read_loop:
-        ; Mover el cursor a la posición deseada
-        MOV AH, 02h                      ; Función de BIOS para mover el cursor
-        MOV BH, 0                        ; Página de pantalla 0
-        INT 10h                          ; Interrupción de video
+read_loop:
+    ; Mover el cursor a la posición deseada
+    MOV AH, 02h                    
+    MOV BH, 0                     
+    INT 10h                     
 
-        MOV AH, 0                        ; Llamar a la BIOS para obtener el carácter
-        INT 16h                          ; Interrupción 16h, función 0 - Leer carácter del teclado
-        CMP AL, 0Dh                      ; Verificar si se presionó Enter (código ASCII 0Dh)
-        JE end_input                     ; Si es Enter, terminar la entrada
+    MOV AH, 0                    
+    INT 16h                      
+    CMP AL, 0Dh        ; Verificar si se presionó Enter (código ASCII 0Dh)
+    JE end_input                  
 
-        ; Mostrar el carácter en pantalla en modo texto con color blanco sobre fondo negro
-        MOV AH, 09h                      ; Función para mostrar con atributo
-        MOV BH, 0                        ; Página de pantalla 0
-        MOV BL, 0Fh                      ; Atributo: blanco sobre fondo negro
-        MOV CX, 1                        ; Número de veces a mostrar el carácter
-        INT 10h                          ; Interrupción 10h para salida en video
+    CMP AL, 08H
+    JE DELETE_CHARACTER
 
-        ; Guardar el carácter en el buffer
-        MOV [BX], AL                     ; Almacenar el carácter en filename
-        INC BX                           ; Avanzar a la siguiente posición en el buffer
-        INC CX                           ; Incrementar el contador de caracteres
+    ; Guardar el valor original de BL en la pila
+    PUSH BX                     
 
-        ; Avanzar la posición en pantalla
-        INC DL                           ; Mover la columna para el siguiente carácter
-        CMP DL, 79                       ; Limitar la columna a 79 (última columna)
-        JBE read_loop                    ; Si no se supera, continuar leyendo caracteres
-        MOV DL, 10                       ; Reiniciar columna a startX si se supera el límite
-        INC DH                           ; Avanzar a la siguiente fila
+    ; Especificar el color deseado en el registro BL
+    MOV BL, 07h                  ; Blanco sobre negro (puedes cambiar este valor)
+    
+    ; Mostrar el carácter en pantalla en modo video
+    MOV AH, 0Eh             
+    INT 10h                      
 
-        CMP CX, 20                       ; Comparar con el tamaño máximo del buffer
-        JB read_loop                     ; Si no se ha alcanzado, repetir el bucle
+    ; Restaurar el valor original de BL desde la pila
+    POP BX                      
 
-    end_input:
-        MOV BYTE PTR [BX], 0             ; Terminar la cadena con un nulo (0)
-        RET
+    ; Guardar el carácter en el buffer
+    MOV [BX], AL                
+    INC BX                      
+    INC CX                      
+
+    ; Avanzar la posición en pantalla
+    INC DL                     
+    CMP DL, 9                 
+    JBE read_loop   
+            
+    JMP read_loop              
+
+DELETE_CHARACTER:
+    CMP CX, 0               
+    JBE read_loop                   
+    DEC BX                          
+    DEC CX                        
+
+    ; Mover el cursor a la posición anterior
+    DEC DL                         
+    MOV AH, 02h                    
+    MOV BH, 0                
+    INT 10h                   
+
+    ; Borrar el carácter en la pantalla
+    MOV AH, 0Eh                    
+    MOV AL, ' '                  
+    INT 10h                  
+
+    ; Borrar el carácter en el buffer
+    MOV [BX], 0
+
+    JMP read_loop                   
+end_input:
+    ; Agregar .txt al final
+    MOV BX, OFFSET filename              
+    ADD BX, CX                         
+    MOV BYTE PTR [BX], '.'              
+    INC BX                             
+    MOV BYTE PTR [BX], 't'              
+    INC BX                              
+    MOV BYTE PTR [BX], 'x'              
+    INC BX                              
+    MOV BYTE PTR [BX], 't'              
+    INC BX
+    MOV BYTE PTR [BX], 0              
+    RET
 GET_FILENAME ENDP
-
 
 CLEAR_SCREEN PROC
     MOV AX, 0600h
@@ -479,8 +516,6 @@ CLEAR_SCREEN PROC
     CALL SET_INPUT_COORDINATES
     CALL DRAW_COLOR_SQUARES
     CALL PRINT_ALL_MSG
-    ;CALL DRAW_EXPORT_LETTERS
-    CALL DRAW_COLOR_SQUARES
     RET
 CLEAR_SCREEN ENDP
 
@@ -535,13 +570,6 @@ NO_FILEPATH:
 FILE_ERROR_I:
     RET
 IMPORT_DRAWING ENDP
-
-; Verifica si FILEPATH está vacío
-CHECK_FILEPATH PROC
-    MOV AL, FILENAME
-    CMP AL, 0
-    RET
-CHECK_FILEPATH ENDP
 
 ; Abre el archivo especificado en FILEPATH en modo lectura
 OPEN_FILE_READ_MODE PROC
@@ -648,10 +676,9 @@ CHAR_TO_COLOR ENDP
 
 ; Procedimiento principal para exportar el dibujo
 EXPORT_DRAWING PROC
-    CALL CHECK_FILENAME; Verificar si FILENAME está vacío
+    CALL CHECK_FILEPATH; Verificar si FILENAME está vacío
     JE NO_FILENAME; Si está vacío, no hacer nada
 
-    CALL CREATE_FILEPATH; Crear FILEPATH con .txt al final
     CALL OPEN_FILE; Intentar abrir el archivo
     JC FILE_ERROR_E; Si hay error, saltar a FILE_ERROR_E
 
@@ -667,45 +694,11 @@ FILE_ERROR_E:
     RET
 EXPORT_DRAWING ENDP
 
-; Verifica si FILENAME está vacío
-CHECK_FILENAME PROC
-    MOV AL, FILENAME
-    CMP AL, 0
-    RET
-CHECK_FILENAME ENDP
-
-; Copia FILENAME a FILEPATH y agrega la extensión ".txt"
-CREATE_FILEPATH PROC
-    LEA SI, FILENAME; Dirección de FILENAME en SI
-    LEA DI, FILEPATH; Dirección de FILEPATH en DI
-
-COPY_LOOP:
-    MOV AL, [SI]; Cargar el byte de FILENAME
-    CMP AL, 0
-    JE ADD_EXTENSION; Si llegamos al final, saltar para agregar ".txt"
-    MOV [DI], AL; Copiar el byte en FILEPATH
-    INC SI
-    INC DI
-    JMP COPY_LOOP
-
-ADD_EXTENSION:
-    MOV BYTE PTR [DI], '.'; Agregar '.'
-    INC DI
-    MOV BYTE PTR [DI], 't'; Agregar 't'
-    INC DI
-    MOV BYTE PTR [DI], 'x'; Agregar 'x'
-    INC DI
-    MOV BYTE PTR [DI], 't'; Agregar 't'
-    INC DI
-    MOV BYTE PTR [DI], 0; Agregar terminador de cadena
-    RET
-CREATE_FILEPATH ENDP
-
 ; Intenta abrir el archivo especificado en FILEPATH
 OPEN_FILE PROC
     MOV AH, 3Ch ; Función para crear archivo
     MOV CX, 0 ; Sin atributos especiales
-    LEA DX, FILEPATH; Dirección de FILEPATH
+    LEA DX, FILENAME; Dirección de FILEPATH
     INT 21h
     MOV BX, AX; Guardar el manejador de archivo en BX
     RET
@@ -791,6 +784,13 @@ HEX_NUM:
     RET
 CONVERT_TO_HEX ENDP
 
+; Verifica si FILEPATH está vacío
+CHECK_FILEPATH PROC
+    MOV AL, FILENAME
+    CMP AL, 0
+    RET
+CHECK_FILEPATH ENDP
+
 CLEAN PROC
     MOV AX, 0700h 
     MOV BH, 0Fh; Primer dígito es el color de fondo / segundo dígito es el color del texto
@@ -799,7 +799,7 @@ CLEAN PROC
     INT 10h
     RET
 CLEAN ENDP
-;........................................................................
+
 DETECT_CLICK_ON_CLEAN_BUTTON PROC
 
     RET
